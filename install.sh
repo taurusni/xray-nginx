@@ -101,7 +101,7 @@ function CheckDomain() {
 
 function CheckProxySite(){
     read -rp "请输入反向代理网站的域名:" site
-    if [[ $(curl -sm8 https://ipget.net/?ip="${site}" | grep -i error -c) -eq 0 ]]; then
+    if [[ $(wget -qO- https://ipget.net/?ip="${site}" | grep -i error -c) -eq 0 ]]; then
         echo "${site}"
     else
         echo "无法找到${site}"
@@ -169,7 +169,6 @@ function GenerateCertificate(){
     Judge "安装 SSL 证书生成脚本"
     ln -s  /root/.acme.sh/acme.sh /usr/local/bin/acme.sh
     acme.sh --set-default-ca --server letsencrypt
-    mkdir -p /var/db/acme/.well-known/acme-challenge/
     if acme.sh --issue -d "${domain}" -w /var/db/acme -k ec-256 --force --test; then
         PrintOk "SSL 证书测试签发成功，开始正式签发"
         sleep 2
@@ -328,6 +327,28 @@ EOF
     Judge "写入${nginxConfigurationFolder}/xray.conf"
 }
 
+function ConfigureNginxForXrayWithoutSSL(){
+    domain="$1"
+    PrintInformation "创建/var/db/acme/.well-known/acme-challenge/"
+    mkdir -p /var/db/acme/.well-known/acme-challenge/
+    PrintInformation "创建/etc/nginx/conf.d"
+    nginxConfigurationFolder="/etc/nginx/conf.d"
+    mkdir -p "${nginxConfigurationFolder}"
+    cat > "${nginxConfigurationFolder}/${domain}.conf" <<EOF
+    server {
+        listen 80;
+        server_name ${domain};
+        location / {
+            return 302 https://\$server_name\$request_uri;
+        }
+        location /.well-known/acme-challenge/ {
+            alias /var/db/acme/.well-known/acme-challenge/;
+        }        
+    }
+EOF
+    Judge "写入${nginxConfigurationFolder}/xray.conf"
+}
+
 function ConfigureXrayServer(){
     randomPort="$1"
     randomPath="$2"
@@ -465,6 +486,7 @@ function ConfigureNginxAndXray(){
     xrayCertificate="/usr/local/etc/xray/cert/${domain}.cert"
     xrayCertificateKey="/usr/local/etc/xray/cert/${domain}.key"
     CheckPort 80
+    ConfigureNginxForXrayWithoutSSL "${domain}"
     CheckPort 443
     GenerateCertificate "${domain}" "${xrayCertificateFolder}" "${xrayCertificate}" "${xrayCertificateKey}"
     ConfigureNginxForXray "${domain}" "${xrayCertificate}" "${xrayCertificateKey}" "${randomPath}" "${randomPort}"
