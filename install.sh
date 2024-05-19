@@ -89,13 +89,13 @@ function CheckPort() {
 
 function CheckDomain() {
     read -rp "请输入你的域名信息:" domain
-    domainIP=$(curl -sm8 https://ipget.net/?ip="${domain}")
+    domainIP=$(wget -qO- https://ipget.net/?ip="${domain}")
     localIPVersion4=$(curl -s4m8 https://ipinfo.io | grep -Po 'ip[^0-9]*"\K[^"]*')
     if [[ "${domainIP}" == "${localIPVersion4}" ]]; then
         echo "${domain}"
     else
         echo "请确保域名正确并添加了正确的 A 记录，否则将无法正常使用!"
-        echo 1
+        return 1
     fi
 }
 
@@ -105,7 +105,7 @@ function CheckProxySite(){
         echo "${site}"
     else
         echo "无法找到${site}"
-        echo 1
+        return 1
     fi
 }
 
@@ -520,7 +520,7 @@ function Uninstall(){
 
 function Menu() {
     PrintWithGreenPrefix "\nName" "   Xray+Nginx管理脚本"
-    PrintWithGreenPrefix "Version" "0.1.0"
+    PrintWithGreenPrefix "Version" "0.1.1"
     PrintWithGreenPrefix "Author" " taurus"
     PrintWithGreenPrefix "Github" " https://github.com/taurusni/xray-nginx"
     PrintMessage "——————————————————————————————————————————"
