@@ -169,7 +169,8 @@ function GenerateCertificate(){
     Judge "安装 SSL 证书生成脚本"
     ln -s  /root/.acme.sh/acme.sh /usr/local/bin/acme.sh
     acme.sh --set-default-ca --server letsencrypt
-    if acme.sh --issue -d "${domain}" --standalone -k ec-256 --force --test; then
+    mkdir -p /var/db/acme/.well-known/acme-challenge/
+    if acme.sh --issue -d "${domain}" -w /var/db/acme -k ec-256 --force --test; then
         PrintOk "SSL 证书测试签发成功，开始正式签发"
         sleep 2
     else
@@ -177,10 +178,9 @@ function GenerateCertificate(){
         PrintErrorWithBackground "SSL 证书测试签发失败"
     fi
 
-    if acme.sh --issue -d "${domain}" --standalone -k ec-256 --force; then
+    if acme.sh --issue -d "${domain}" -w /var/db/acme -k ec-256 --force; then
         PrintOk "SSL 证书生成成功"
         sleep 2
-        mkdir -p "${xrayCertificateFolder}"
         if acme.sh --installcert -d "${domain}" --fullchainpath "${xrayCertificate}" --keypath "${xrayCertificateKey}" --ecc --force --reloadcmd "systemctl restart xray" --reloadcmd "systemctl restart nginx"; then
             PrintOk "证书配置成功"
             sleep 2
@@ -317,7 +317,12 @@ function ConfigureNginxForXray(){
     server {
         listen 80;
         server_name ${domain};
-        return 302 https://\$server_name\$request_uri;
+        location / {
+            return 302 https://\$server_name\$request_uri;
+        }
+        location /.well-known/acme-challenge/ {
+            alias /var/db/acme/.well-known/acme-challenge/;
+        }        
     }
 EOF
     Judge "写入${nginxConfigurationFolder}/xray.conf"
