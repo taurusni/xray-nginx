@@ -136,8 +136,17 @@ function InstallNginx(){
     else
         PrintOk "Nginx 已经安装"
     fi
+    StopNginx
+}
+
+function StopNginx(){
     systemctl stop nginx
     Judge "停止Nginx"
+}
+
+function StartNginx(){
+    systemctl start nginx
+    Judge "启动Nginx"
 }
 
 function GenerateAPort(){
@@ -487,8 +496,10 @@ function ConfigureNginxAndXray(){
     xrayCertificateKey="/usr/local/etc/xray/cert/${domain}.key"
     CheckPort 80
     ConfigureNginxForXrayWithoutSSL "${domain}"
+    StartNginx
     CheckPort 443
     GenerateCertificate "${domain}" "${xrayCertificateFolder}" "${xrayCertificate}" "${xrayCertificateKey}"
+    StopNginx
     ConfigureNginxForXray "${domain}" "${xrayCertificate}" "${xrayCertificateKey}" "${randomPath}" "${randomPort}"
     userId="$(xray uuid)"
     ConfigureXrayServer "${randomPort}" "${randomPath}" "${userId}"
