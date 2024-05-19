@@ -89,23 +89,23 @@ function CheckPort() {
 
 function CheckDomain() {
     read -rp "请输入你的域名信息:" domain
-    domainIP=$(curl -sm8 https://ipget.net/?ip="${domain}")
+    domainIP=$(wget -qO- https://ipget.net/?ip="${domain}")
     localIPVersion4=$(curl -s4m8 https://ipinfo.io | grep -Po 'ip[^0-9]*"\K[^"]*')
     if [[ "${domainIP}" == "${localIPVersion4}" ]]; then
         echo "${domain}"
     else
         echo "请确保域名正确并添加了正确的 A 记录，否则将无法正常使用!"
-        echo 1
+        return 1
     fi
 }
 
 function CheckProxySite(){
     read -rp "请输入反向代理网站的域名:" site
-    if [[ $(curl -sm8 https://ipget.net/?ip="${site}" | grep -i error -c) -eq 0 ]]; then
+    if [[ $(wget -qO- https://ipget.net/?ip="${site}" | grep -i error -c) -eq 0 ]]; then
         echo "${site}"
     else
         echo "无法找到${site}"
-        echo 1
+        return 1
     fi
 }
 
@@ -136,8 +136,17 @@ function InstallNginx(){
     else
         PrintOk "Nginx 已经安装"
     fi
+    StopNginx
+}
+
+function StopNginx(){
     systemctl stop nginx
     Judge "停止Nginx"
+}
+
+function StartNginx(){
+    systemctl start nginx
+    Judge "启动Nginx"
 }
 
 function GenerateAPort(){
@@ -169,7 +178,7 @@ function GenerateCertificate(){
     Judge "安装 SSL 证书生成脚本"
     ln -s  /root/.acme.sh/acme.sh /usr/local/bin/acme.sh
     acme.sh --set-default-ca --server letsencrypt
-    if acme.sh --issue -d "${domain}" --standalone -k ec-256 --force --test; then
+    if acme.sh --issue -d "${domain}" -w /var/db/acme -k ec-256 --force --test; then
         PrintOk "SSL 证书测试签发成功，开始正式签发"
         sleep 2
     else
@@ -177,10 +186,9 @@ function GenerateCertificate(){
         PrintErrorWithBackground "SSL 证书测试签发失败"
     fi
 
-    if acme.sh --issue -d "${domain}" --standalone -k ec-256 --force; then
+    if acme.sh --issue -d "${domain}" -w /var/db/acme -k ec-256 --force; then
         PrintOk "SSL 证书生成成功"
         sleep 2
-        mkdir -p "${xrayCertificateFolder}"
         if acme.sh --installcert -d "${domain}" --fullchainpath "${xrayCertificate}" --keypath "${xrayCertificateKey}" --ecc --force --reloadcmd "systemctl restart xray" --reloadcmd "systemctl restart nginx"; then
             PrintOk "证书配置成功"
             sleep 2
@@ -317,7 +325,34 @@ function ConfigureNginxForXray(){
     server {
         listen 80;
         server_name ${domain};
-        return 302 https://\$server_name\$request_uri;
+        location / {
+            return 302 https://\$server_name\$request_uri;
+        }
+        location /.well-known/acme-challenge/ {
+            alias /var/db/acme/.well-known/acme-challenge/;
+        }        
+    }
+EOF
+    Judge "写入${nginxConfigurationFolder}/xray.conf"
+}
+
+function ConfigureNginxForXrayWithoutSSL(){
+    domain="$1"
+    PrintInformation "创建/var/db/acme/.well-known/acme-challenge/"
+    mkdir -p /var/db/acme/.well-known/acme-challenge/
+    PrintInformation "创建/etc/nginx/conf.d"
+    nginxConfigurationFolder="/etc/nginx/conf.d"
+    mkdir -p "${nginxConfigurationFolder}"
+    cat > "${nginxConfigurationFolder}/${domain}.conf" <<EOF
+    server {
+        listen 80;
+        server_name ${domain};
+        location / {
+            return 302 https://\$server_name\$request_uri;
+        }
+        location /.well-known/acme-challenge/ {
+            alias /var/db/acme/.well-known/acme-challenge/;
+        }        
     }
 EOF
     Judge "写入${nginxConfigurationFolder}/xray.conf"
@@ -460,8 +495,11 @@ function ConfigureNginxAndXray(){
     xrayCertificate="/usr/local/etc/xray/cert/${domain}.cert"
     xrayCertificateKey="/usr/local/etc/xray/cert/${domain}.key"
     CheckPort 80
+    ConfigureNginxForXrayWithoutSSL "${domain}"
+    StartNginx
     CheckPort 443
     GenerateCertificate "${domain}" "${xrayCertificateFolder}" "${xrayCertificate}" "${xrayCertificateKey}"
+    StopNginx
     ConfigureNginxForXray "${domain}" "${xrayCertificate}" "${xrayCertificateKey}" "${randomPath}" "${randomPort}"
     userId="$(xray uuid)"
     ConfigureXrayServer "${randomPort}" "${randomPath}" "${userId}"
@@ -515,7 +553,7 @@ function Uninstall(){
 
 function Menu() {
     PrintWithGreenPrefix "\nName" "   Xray+Nginx管理脚本"
-    PrintWithGreenPrefix "Version" "0.1.0"
+    PrintWithGreenPrefix "Version" "0.1.1"
     PrintWithGreenPrefix "Author" " taurus"
     PrintWithGreenPrefix "Github" " https://github.com/taurusni/xray-nginx"
     PrintMessage "——————————————————————————————————————————"
